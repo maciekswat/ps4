@@ -3,18 +3,21 @@ import matplotlib
 
 matplotlib.use('Qt4Agg')
 import numpy as np
-from random import randint,random
+from random import randint, random
 import math
 from collections import defaultdict
 
 import pandas as pd
+
+import cPickle as pickle
+
 
 def gaussian(x, mu, sig):
     return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.)))
 
 
 class Lattice(object):
-    def __init__(self, dims=np.array([40, 40],dtype=np.int)):
+    def __init__(self, dims=np.array([40, 40], dtype=np.int)):
         self.offsets = self.generate_neighbor_list(neighbor_order=2)
         self.dims = dims
 
@@ -55,7 +58,7 @@ class Lattice(object):
 
 
 class Metropolis(object):
-    def __init__(self, lattice=None, fcn_vals=None,T=10.0):
+    def __init__(self, lattice=None, fcn_vals=None, T=10.0):
         self.T = T
         self.set_fcn_vals(fcn_vals)
         self.set_lattice(lattice)
@@ -69,7 +72,6 @@ class Metropolis(object):
     def check_starting_loc(self):
         if self.lattice and self.starting_loc is None:
             self.starting_loc = np.squeeze(self.lattice.get_dims() / 2)
-
 
     def set_starting_loc(self, starting_loc):
         self.starting_loc = starting_loc
@@ -98,19 +100,16 @@ class Metropolis(object):
         for i in xrange(steps):
             neighbor = lattice.pick_neighbor(x)
 
-            self.freq_measure_dict[tuple(x)]+=1
-            self.freq_measure_dict[tuple(neighbor)]+=1
+            self.freq_measure_dict[tuple(x)] += 1
+            self.freq_measure_dict[tuple(neighbor)] += 1
 
             val = self.fcn_vals[tuple(x)]
             val_neighbor = self.fcn_vals[tuple(neighbor)]
 
-
-
-
-            delta = val_neighbor-val
+            delta = val_neighbor - val
 
             prob_thresh = random()
-            accept_prob = self.acceptance_function(delta,self.T)
+            accept_prob = self.acceptance_function(delta, self.T)
             if prob_thresh < accept_prob:
                 x = neighbor
                 # print neighbor,self.fcn_vals[tuple(neighbor)]
@@ -118,14 +117,15 @@ class Metropolis(object):
         print self.freq_measure_dict
 
 
+mu, sig = -2.0, 1.0
 
-mu, sig = -2.0 , 1.0
+mu_noise, sig_noise = 0.0, 1.0
 
 X = np.arange(-5, 5, 0.25)
 Y = np.arange(-5, 5, 0.25)
 X, Y = np.meshgrid(X, Y)
 # R = np.sqrt(X**2 + Y**2)
-R = gaussian(X, mu, sig) * gaussian(Y, mu, sig)*5
+R = gaussian(X, mu, sig) * gaussian(Y, mu, sig) * 5
 
 noise = np.random.normal(mu, sig, X.shape[0] * Y.shape[0])
 
@@ -134,28 +134,29 @@ noise = noise.reshape((X.shape[0], Y.shape[0]))
 # Z = np.sin(R)
 Z = R + noise
 
-
-
-lattice = Lattice(dims=np.array([X.shape[0], Y.shape[0]],dtype=np.int))
+lattice = Lattice(dims=np.array([X.shape[0], Y.shape[0]], dtype=np.int))
 lattice.generate_neighbor_list(neighbor_order=3)
 
 s_cumulative = None
 
-for i in range(5):
-    metro = Metropolis(lattice=lattice,T=1.0)
+for i in range(1):
+    metro = Metropolis(lattice=lattice, T=1.0)
     metro.set_fcn_vals(Z)
 
     # pick random staring point
-    starting_loc=np.array([randint(0,X.shape[0]-1),randint(0,Y.shape[0]-1)],dtype=np.int)
+    starting_loc = np.array([randint(0, X.shape[0] - 1), randint(0, Y.shape[0] - 1)], dtype=np.int)
+    starting_loc = np.array([38,16])
+    starting_loc = np.array([4,0])
 
     metro.set_starting_loc(starting_loc=starting_loc)
 
-    metro.run(steps=200)
+
+    metro.run(steps=500)
 
     fmd = metro.freq_measure_dict
-    s  = pd.Series(fmd,index=fmd.keys())
+    s = pd.Series(fmd, index=fmd.keys())
 
-    s_sorted= s.sort_values(inplace=False,ascending=False)
+    s_sorted = s.sort_values(inplace=False, ascending=False)
 
     s_top = s_sorted.ix[range(10)]
 
@@ -164,45 +165,61 @@ for i in range(5):
     if s_cumulative is None:
         s_cumulative = s_top
     else:
-        s_cumulative = pd.concat([s_cumulative,s_top])
+        s_cumulative = pd.concat([s_cumulative, s_top])
 
 
-    # for loc,count in s_top.iteritems():
-    #     print 'loc=',loc,' val=',Z[tuple(loc)]
+        # for loc,count in s_top.iteritems():
+        #     print 'loc=',loc,' val=',Z[tuple(loc)]
 
 print s_cumulative
 
-
-for loc,count in s_cumulative.iteritems():
-    print 'loc=',loc,' val=',Z[tuple(loc)]
+for loc, count in s_cumulative.iteritems():
+    print 'loc=', loc, ' val=', Z[tuple(loc)]
 
 
 class ValueExtractor(object):
-    def __init__(self,fcn_vals):
+    def __init__(self, fcn_vals):
         self.fcn_vals = fcn_vals
 
     def __call__(self, *args, **kwargs):
-
-        loc=args[0]
+        loc = args[0]
 
         return self.fcn_vals[tuple(loc)]
 
+
 v_extractor = ValueExtractor(fcn_vals=Z)
 
-s_new = pd.DataFrame({'loc':s_cumulative.index,'count':s_cumulative.values})
+s_new = pd.DataFrame({'loc': s_cumulative.index, 'count': s_cumulative.values})
 
-values =  s_new['loc'].apply(v_extractor)
+values = s_new['loc'].apply(v_extractor)
 
-s_new['values'] = pd.Series(values,index=s_new.index)
-
+s_new['values'] = pd.Series(values, index=s_new.index)
 
 print s_new
 
-s_new_sorted = s_new.sort_values(by='values',ascending=False)
+s_new_sorted = s_new.sort_values(by='values', ascending=False)
 
-
+print '---------------AFTER SORTING---------------'
+print 'STARTING LOC:', starting_loc
 print s_new_sorted
 
+out_dict = {
+    'X': X,
+    'Y': Y,
+    'Z': Z,
+    'mu': mu,
+    'sig': sig,
+    'mu_noise': mu_noise,
+    'sig_noise': sig_noise,
+    's_new_sorted': s_new_sorted,
+    'starting_loc':starting_loc
+
+
+}
+
+s_new_sorted.to_csv('random_walker_frequency.txt')
+
+pickle.dump(out_dict, open("random_walker_data.pkl", "wb"))
 
 # print s_new
 
